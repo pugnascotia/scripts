@@ -1,0 +1,46 @@
+#!/usr/bin/perl -w
+
+use strict;
+use warnings;
+
+my $machine_archive = shift @ARGV;
+
+usage() unless $machine_archive;
+
+usage() unless $machine_archive =~ /^(.*?)\.zip$/;
+
+my $machine_name = $1;
+
+my $machine_storage_path = $ENV{MACHINE_STORAGE_PATH} ? $ENV{MACHINE_STORAGE_PATH} : $ENV{HOME} . '/.docker/machine';
+
+my $machine_path = "$machine_storage_path/machines/$machine_name";
+
+die "$machine_path already exists\n" if -d $machine_path;
+
+my @files = map { s/^\s+//; chomp; $_ }
+    grep !m|/$|,
+    grep m|/$machine_name/|,
+    qx( zip -sf $machine_archive );
+
+mkdir $machine_path, 0755 or die "Failed to mkdir $machine_path: $!\n";
+
+0 == system( 'unzip', '-j', '-q', $machine_archive, @files, '-d', $machine_path )
+    or die "Failed to unzip files. unzip exited with $?";
+
+my $guid = (split m|/|, $files[0])[0];
+
+0 == system( 'perl', '-p', '-i', '-e', "s|/var/lib/cattle/machine/$guid|$machine_storage_path|g", "$machine_path/config.json" )
+    or die "In-place edit failed - perl exited with $?";
+
+print "Imported $machine_name to $machine_path\n";
+
+
+sub usage {
+    print STDERR <<EOF;
+Usage: rancher-machine-import machine.zip
+
+Imports a machine from a machine file, exported from Rancher.
+
+EOF
+    exit 1;
+}
